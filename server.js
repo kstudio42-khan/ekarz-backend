@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-// No more fs or path needed
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,16 +14,11 @@ app.use(cors({
 app.use(express.json());
 
 // -------------------------------
-// MongoDB Connection
+// MongoDB Connection (fixed)
 // -------------------------------
-const MONGODB_URI = 'mongodb+srv://admin:1AodJfMfp8PfnbWx@cluster0.y7v58xm.mongodb.net/?appName=Cluster0'; // ⬅️ REPLACE WITH YOUR ACTUAL URI
-
-mongoose.connect(MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('✅ Connected to MongoDB Atlas'))
-.catch(err => console.error('❌ MongoDB connection error:', err));
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('✅ Connected to MongoDB Atlas'))
+  .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // -------------------------------
 // Mongoose Schema & Model
@@ -49,7 +43,7 @@ async function getNextId() {
 }
 
 // -------------------------------
-// Simple in‑memory token storage (unchanged)
+// Simple in‑memory token storage
 // -------------------------------
 const validTokens = new Map();
 
@@ -58,7 +52,7 @@ function generateToken() {
 }
 
 // -------------------------------
-// AUTH ROUTES (unchanged)
+// AUTH ROUTES
 // -------------------------------
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
@@ -95,10 +89,9 @@ app.post('/api/logout', (req, res) => {
 });
 
 // -------------------------------
-// APPLICATION ROUTES (MongoDB version)
+// APPLICATION ROUTES
 // -------------------------------
 
-// POST /submit – create new application
 app.post('/submit', async (req, res) => {
   try {
     const { name, contact, loanType, amount, status } = req.body;
@@ -121,7 +114,6 @@ app.post('/submit', async (req, res) => {
   }
 });
 
-// GET /api/applications – return all applications
 app.get('/api/applications', async (req, res) => {
   try {
     const apps = await Application.find().sort({ id: 1 });
@@ -132,7 +124,6 @@ app.get('/api/applications', async (req, res) => {
   }
 });
 
-// PATCH /api/applications/:id/status
 app.patch('/api/applications/:id/status', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -148,7 +139,6 @@ app.patch('/api/applications/:id/status', async (req, res) => {
   }
 });
 
-// PATCH /api/applications/:id/staff
 app.patch('/api/applications/:id/staff', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
