@@ -5,7 +5,9 @@ const mongoose = require('mongoose');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// -------------------------------
 // Middleware
+// -------------------------------
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PATCH'],
@@ -14,21 +16,29 @@ app.use(cors({
 app.use(express.json());
 
 // -------------------------------
-// MongoDB Connection (fixed)
+// MongoDB Connection (SAFE)
 // -------------------------------
+if (!process.env.MONGO_URI) {
+  console.error("❌ MONGO_URI is missing in environment variables");
+  process.exit(1); // stop app if no DB
+}
+
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ Connected to MongoDB Atlas'))
-  .catch(err => console.error('❌ MongoDB connection error:', err));
+  .catch(err => {
+    console.error('❌ MongoDB connection error:', err);
+    process.exit(1);
+  });
 
 // -------------------------------
-// Mongoose Schema & Model
+// Schema & Model
 // -------------------------------
 const applicationSchema = new mongoose.Schema({
   id: { type: Number, unique: true },
-  name: String,
-  contact: String,
-  loanType: String,
-  amount: Number,
+  name: { type: String, required: true },
+  contact: { type: String, required: true },
+  loanType: { type: String, required: true },
+  amount: { type: Number, required: true },
   status: { type: String, default: 'Pending' },
   staff: { type: String, default: null },
   date: String
@@ -36,19 +46,21 @@ const applicationSchema = new mongoose.Schema({
 
 const Application = mongoose.model('Application', applicationSchema);
 
-// Helper: get next auto-increment id
+// -------------------------------
+// Helper: Auto ID
+// -------------------------------
 async function getNextId() {
   const lastApp = await Application.findOne().sort({ id: -1 });
   return lastApp ? lastApp.id + 1 : 1;
 }
 
 // -------------------------------
-// Simple in‑memory token storage
+// Token system
 // -------------------------------
 const validTokens = new Map();
 
 function generateToken() {
-  return 'token_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8);
+  return 'token_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
 }
 
 // -------------------------------
@@ -56,35 +68,42 @@ function generateToken() {
 // -------------------------------
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
+
   if (email === 'admin@gmail.com' && password === '1234') {
     const token = generateToken();
-    const user = { email: 'admin@gmail.com', role: 'owner' };
+    const user = { email, role: 'owner' };
     validTokens.set(token, user);
-    res.json({ token, user });
-  } else {
-    res.status(401).json({ message: 'Invalid credentials' });
+    return res.json({ token, user });
   }
+
+  res.status(401).json({ message: 'Invalid credentials' });
 });
 
 app.get('/api/me', (req, res) => {
   const authHeader = req.headers.authorization;
+
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'Missing or invalid token' });
+    return res.status(401).json({ message: 'Missing token' });
   }
+
   const token = authHeader.split(' ')[1];
   const user = validTokens.get(token);
+
   if (!user) {
-    return res.status(401).json({ message: 'Token expired or invalid' });
+    return res.status(401).json({ message: 'Invalid token' });
   }
+
   res.json(user);
 });
 
 app.post('/api/logout', (req, res) => {
   const authHeader = req.headers.authorization;
+
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
     validTokens.delete(token);
   }
+
   res.json({ success: true });
 });
 
@@ -92,72 +111,101 @@ app.post('/api/logout', (req, res) => {
 // APPLICATION ROUTES
 // -------------------------------
 
+// CREATE
 app.post('/submit', async (req, res) => {
   try {
     const { name, contact, loanType, amount, status } = req.body;
+
+    if (!name || !contact || !loanType || !amount) {
+      return res.status(400).json({ message: 'Missing fields' });
+    }
+
     const newId = await getNextId();
+
     const newApp = new Application({
       id: newId,
       name,
       contact,
       loanType,
-      amount: parseFloat(amount),
+      amount: Number(amount),
       status: status || 'Pending',
       staff: null,
       date: new Date().toLocaleDateString('en-IN')
     });
+
     await newApp.save();
+
     res.json({ success: true, id: newId });
+
   } catch (err) {
-    console.error(err);
+    console.error("❌ CREATE ERROR:", err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
+// READ
 app.get('/api/applications', async (req, res) => {
   try {
     const apps = await Application.find().sort({ id: 1 });
     res.json(apps);
   } catch (err) {
-    console.error(err);
+    console.error("❌ FETCH ERROR:", err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
+// UPDATE STATUS
 app.patch('/api/applications/:id/status', async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number(req.params.id);
     const { status } = req.body;
+
     const result = await Application.updateOne({ id }, { status });
+
     if (result.matchedCount === 0) {
       return res.status(404).json({ message: 'Application not found' });
     }
+
     res.json({ success: true });
+
   } catch (err) {
-    console.error(err);
+    console.error("❌ STATUS ERROR:", err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
+// UPDATE STAFF
 app.patch('/api/applications/:id/staff', async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number(req.params.id);
     let { staff } = req.body;
+
     if (staff === 'none') staff = null;
+
     const result = await Application.updateOne({ id }, { staff });
+
     if (result.matchedCount === 0) {
       return res.status(404).json({ message: 'Application not found' });
     }
+
     res.json({ success: true });
+
   } catch (err) {
-    console.error(err);
+    console.error("❌ STAFF ERROR:", err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
 // -------------------------------
-// Start server
+// HEALTH CHECK (VERY IMPORTANT)
+// -------------------------------
+app.get('/', (req, res) => {
+  res.send('✅ Ekarz Backend Running');
+});
+
+// -------------------------------
+// START SERVER
 // -------------------------------
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
