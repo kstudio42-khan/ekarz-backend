@@ -1,211 +1,153 @@
 const express = require('express');
 const cors = require('cors');
-const mongoose = require('mongoose');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// -------------------------------
 // Middleware
-// -------------------------------
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(cors());
 app.use(express.json());
 
 // -------------------------------
-// MongoDB Connection (SAFE)
+// Simple in‑memory token storage
 // -------------------------------
-if (!process.env.MONGO_URI) {
-  console.error("❌ MONGO_URI is missing in environment variables");
-  process.exit(1); // stop app if no DB
-}
-
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('✅ Connected to MongoDB Atlas'))
-  .catch(err => {
-    console.error('❌ MongoDB connection error:', err);
-    process.exit(1);
-  });
-
-// -------------------------------
-// Schema & Model
-// -------------------------------
-const applicationSchema = new mongoose.Schema({
-  id: { type: Number, unique: true },
-  name: { type: String, required: true },
-  contact: { type: String, required: true },
-  loanType: { type: String, required: true },
-  amount: { type: Number, required: true },
-  status: { type: String, default: 'Pending' },
-  staff: { type: String, default: null },
-  date: String
-});
-
-const Application = mongoose.model('Application', applicationSchema);
-
-// -------------------------------
-// Helper: Auto ID
-// -------------------------------
-async function getNextId() {
-  const lastApp = await Application.findOne().sort({ id: -1 });
-  return lastApp ? lastApp.id + 1 : 1;
-}
-
-// -------------------------------
-// Token system
-// -------------------------------
-const validTokens = new Map();
+const validTokens = new Map(); // token -> user object
 
 function generateToken() {
-  return 'token_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+    return 'token_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8);
+}
+
+// Helper to read/write applications.json
+const dataPath = path.join(__dirname, 'applications.json');
+
+function readApplications() {
+    if (!fs.existsSync(dataPath)) return [];
+    const raw = fs.readFileSync(dataPath);
+    return JSON.parse(raw);
+}
+
+function writeApplications(apps) {
+    fs.writeFileSync(dataPath, JSON.stringify(apps, null, 2));
 }
 
 // -------------------------------
-// AUTH ROUTES
-// -------------------------------
-app.post('/api/login', (req, res) => {
-  const { email, password } = req.body;
-
-  if (email === 'admin@gmail.com' && password === '1234') {
-    const token = generateToken();
-    const user = { email, role: 'owner' };
-    validTokens.set(token, user);
-    return res.json({ token, user });
-  }
-
-  res.status(401).json({ message: 'Invalid credentials' });
-});
-
-app.get('/api/me', (req, res) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'Missing token' });
-  }
-
-  const token = authHeader.split(' ')[1];
-  const user = validTokens.get(token);
-
-  if (!user) {
-    return res.status(401).json({ message: 'Invalid token' });
-  }
-
-  res.json(user);
-});
-
-app.post('/api/logout', (req, res) => {
-  const authHeader = req.headers.authorization;
-
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-    validTokens.delete(token);
-  }
-
-  res.json({ success: true });
-});
-
-// -------------------------------
-// APPLICATION ROUTES
+// EXISTING ROUTES
 // -------------------------------
 
-// CREATE
-app.post('/submit', async (req, res) => {
-  try {
+// POST /submit – save application
+app.post('/submit', (req, res) => {
     const { name, contact, loanType, amount, status } = req.body;
-
-    if (!name || !contact || !loanType || !amount) {
-      return res.status(400).json({ message: 'Missing fields' });
-    }
-
-    const newId = await getNextId();
-
-    const newApp = new Application({
-      id: newId,
-      name,
-      contact,
-      loanType,
-      amount: Number(amount),
-      status: status || 'Pending',
-      staff: null,
-      date: new Date().toLocaleDateString('en-IN')
-    });
-
-    await newApp.save();
-
+    
+    let apps = readApplications();
+    const newId = apps.length > 0 ? Math.max(...apps.map(a => a.id)) + 1 : 1;
+    const newApp = {
+        id: newId,
+        name,
+        contact,
+        loanType,
+        amount,
+        status: status || 'Pending',
+        date: new Date().toLocaleDateString('en-IN')
+    };
+    apps.push(newApp);
+    writeApplications(apps);
+    
     res.json({ success: true, id: newId });
-
-  } catch (err) {
-    console.error("❌ CREATE ERROR:", err);
-    res.status(500).json({ message: 'Server error' });
-  }
 });
 
-// READ
-app.get('/api/applications', async (req, res) => {
-  try {
-    const apps = await Application.find().sort({ id: 1 });
+// GET /api/applications – return all applications
+app.get('/api/applications', (req, res) => {
+    const apps = readApplications();
     res.json(apps);
-  } catch (err) {
-    console.error("❌ FETCH ERROR:", err);
-    res.status(500).json({ message: 'Server error' });
-  }
 });
 
-// UPDATE STATUS
-app.patch('/api/applications/:id/status', async (req, res) => {
-  try {
-    const id = Number(req.params.id);
+// POST /api/login
+app.post('/api/login', (req, res) => {
+    const { email, password } = req.body;
+    
+const users = [
+    { email: 'admin@gmail.com', password: '1234', role: 'owner' },
+    { email: 'staff1@gmail.com', password: '1111', role: 'staff' },
+    { email: 'staff2@gmail.com', password: '2222', role: 'staff' }
+];
+
+const user = users.find(u => u.email === email && u.password === password);
+
+if (user) {
+    const token = generateToken();
+    validTokens.set(token, user);
+    res.json({ token, user });
+} else {
+    res.status(401).json({ message: 'Invalid credentials' });
+}
+
+// GET /api/me
+app.get('/api/me', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ message: 'Missing or invalid token' });
+    }
+    const token = authHeader.split(' ')[1];
+    const user = validTokens.get(token);
+    if (!user) {
+        return res.status(401).json({ message: 'Token expired or invalid' });
+    }
+    res.json(user);
+});
+
+// POST /api/logout
+app.post('/api/logout', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        validTokens.delete(token);
+    }
+    res.json({ success: true });
+});
+
+// -------------------------------
+// PATCH ROUTES (status & staff)
+// -------------------------------
+
+// PATCH /api/applications/:id/status
+app.patch('/api/applications/:id/status', (req, res) => {
+    const id = parseInt(req.params.id);
     const { status } = req.body;
-
-    const result = await Application.updateOne({ id }, { status });
-
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ message: 'Application not found' });
+    
+    let apps = readApplications();
+    const appIndex = apps.findIndex(a => a.id === id);
+    
+    if (appIndex === -1) {
+        return res.status(404).json({ message: 'Application not found' });
     }
-
+    
+    apps[appIndex].status = status;
+    writeApplications(apps);
     res.json({ success: true });
-
-  } catch (err) {
-    console.error("❌ STATUS ERROR:", err);
-    res.status(500).json({ message: 'Server error' });
-  }
 });
 
-// UPDATE STAFF
-app.patch('/api/applications/:id/staff', async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    let { staff } = req.body;
-
-    if (staff === 'none') staff = null;
-
-    const result = await Application.updateOne({ id }, { staff });
-
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ message: 'Application not found' });
+// PATCH /api/applications/:id/staff
+app.patch('/api/applications/:id/staff', (req, res) => {
+    const id = parseInt(req.params.id);
+    const { staff } = req.body;
+    
+    let apps = readApplications();
+    const appIndex = apps.findIndex(a => a.id === id);
+    
+    if (appIndex === -1) {
+        return res.status(404).json({ message: 'Application not found' });
     }
-
+    
+    apps[appIndex].staff = staff === 'none' ? null : staff;
+    writeApplications(apps);
     res.json({ success: true });
-
-  } catch (err) {
-    console.error("❌ STAFF ERROR:", err);
-    res.status(500).json({ message: 'Server error' });
-  }
 });
 
 // -------------------------------
-// HEALTH CHECK (VERY IMPORTANT)
+// Start server (dynamic port)
 // -------------------------------
-app.get('/', (req, res) => {
-  res.send('✅ Ekarz Backend Running');
-});
-
-// -------------------------------
-// START SERVER
-// -------------------------------
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
