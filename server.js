@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 // -------------------------------
-// Simple in‑memory token storage
+// Simple in-memory token storage
 // -------------------------------
 const validTokens = new Map(); // token -> user object
 
@@ -56,31 +56,34 @@ app.post('/submit', (req, res) => {
     res.json({ success: true, id: newId });
 });
 
-// GET /api/applications – return all applications
+// GET /api/applications
 app.get('/api/applications', (req, res) => {
     const apps = readApplications();
     res.json(apps);
 });
 
-// POST /api/login
+// -------------------------------
+// LOGIN ROUTE (FIXED)
+// -------------------------------
 app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
     
-const users = [
-    { email: 'admin@gmail.com', password: '1234', role: 'owner' },
-    { email: 'staff1@gmail.com', password: '1111', role: 'staff' },
-    { email: 'staff2@gmail.com', password: '2222', role: 'staff' }
-];
+    const users = [
+        { email: 'admin@gmail.com', password: '1234', role: 'owner' },
+        { email: 'staff1@gmail.com', password: '1111', role: 'staff' },
+        { email: 'staff2@gmail.com', password: '2222', role: 'staff' }
+    ];
 
-const user = users.find(u => u.email === email && u.password === password);
+    const user = users.find(u => u.email === email && u.password === password);
 
-if (user) {
-    const token = generateToken();
-    validTokens.set(token, user);
-    res.json({ token, user });
-} else {
-    res.status(401).json({ message: 'Invalid credentials' });
-}
+    if (user) {
+        const token = generateToken();
+        validTokens.set(token, user);
+        res.json({ token, user });
+    } else {
+        res.status(401).json({ message: 'Invalid credentials' });
+    }
+}); // ✅ YEHI MISSING THA
 
 // GET /api/me
 app.get('/api/me', (req, res) => {
@@ -107,10 +110,9 @@ app.post('/api/logout', (req, res) => {
 });
 
 // -------------------------------
-// PATCH ROUTES (status & staff)
+// PATCH ROUTES
 // -------------------------------
 
-// PATCH /api/applications/:id/status
 app.patch('/api/applications/:id/status', (req, res) => {
     const id = parseInt(req.params.id);
     const { status } = req.body;
@@ -127,7 +129,6 @@ app.patch('/api/applications/:id/status', (req, res) => {
     res.json({ success: true });
 });
 
-// PATCH /api/applications/:id/staff
 app.patch('/api/applications/:id/staff', (req, res) => {
     const id = parseInt(req.params.id);
     const { staff } = req.body;
@@ -145,7 +146,7 @@ app.patch('/api/applications/:id/staff', (req, res) => {
 });
 
 // -------------------------------
-// Start server (dynamic port)
+// START SERVER
 // -------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
